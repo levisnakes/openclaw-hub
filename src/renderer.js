@@ -7,6 +7,7 @@ let gatewayUrl = localStorage.getItem('gatewayUrl') || '';
 let apiKey = localStorage.getItem('apiKey') || '';
 let terminal = null;
 let terminalSocket = null;
+let reconnectInterval = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -65,14 +66,67 @@ function switchTab(tab) {
   if (tab === 'ollama') loadOllama();
   if (tab === 'cron') loadCron();
   if (tab === 'terminal' && terminal) {
-    setTimeout(() => terminal.fit(), 100);
+    setTimeout(() => terminal?.fit?.(), 100);
   }
+}
+
+// Toast Notifications
+function showToast(message, type = 'info') {
+  // Remove existing toast
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ'}</span>
+    <span class="toast-message">${message}</span>
+  `;
+  
+  // Add toast styles if not present
+  if (!document.getElementById('toast-styles')) {
+    const style = document.createElement('style');
+    style.id = 'toast-styles';
+    style.textContent = `
+      .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        padding: 14px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        z-index: 9999;
+        animation: slideIn 0.3s ease;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      }
+      .toast-info { background: #58a6ff; color: #fff; }
+      .toast-success { background: #3fb950; color: #fff; }
+      .toast-error { background: #f85149; color: #fff; }
+      .toast-icon { font-weight: bold; }
+      @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  document.body.appendChild(toast);
+  
+  // Auto remove
+  setTimeout(() => {
+    toast.style.animation = 'slideIn 0.3s ease reverse';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
 }
 
 // API Helper
 async function apiCall(endpoint, options = {}) {
   if (!gatewayUrl) {
-    showNotification('Please configure gateway URL in Settings', 'error');
+    showToast('Please configure gateway URL in Settings', 'error');
     return null;
   }
   
@@ -96,7 +150,7 @@ async function apiCall(endpoint, options = {}) {
     return await response.json();
   } catch (error) {
     console.error('API Error:', error);
-    showNotification(`Connection failed: ${error.message}`, 'error');
+    showToast(`Connection failed: ${error.message}`, 'error');
     updateConnectionStatus(false);
     return null;
   }
@@ -108,10 +162,29 @@ function updateConnectionStatus(online) {
   const statusIndicator = document.querySelector('.status-indicator');
   const statusText = document.querySelector('.status-text');
   
-  statusDot.classList.toggle('online', online);
-  statusDot.classList.toggle('offline', !online);
+  statusDot?.classList.toggle('online', online);
+  statusDot?.classList.toggle('offline', !online);
   statusIndicator?.classList.toggle('online', online);
-  statusText.textContent = online ? 'Connected' : 'Disconnected';
+  if (statusText) statusText.textContent = online ? 'Connected' : 'Disconnected';
+  
+  // Auto-reconnect
+  if (!online && gatewayUrl) {
+    if (reconnectInterval) clearInterval(reconnectInterval);
+    reconnectInterval = setInterval(() => {
+      console.log('Attempting reconnect...');
+      apiCall('/status').then(status => {
+        if (status) {
+          updateConnectionStatus(true);
+          showToast('Reconnected!', 'success');
+          clearInterval(reconnectInterval);
+          reconnectInterval = null;
+        }
+      });
+    }, 10000); // Try every 10 seconds
+  } else if (online && reconnectInterval) {
+    clearInterval(reconnectInterval);
+    reconnectInterval = null;
+  }
 }
 
 async function connectToGateway() {
@@ -119,7 +192,7 @@ async function connectToGateway() {
   const key = document.getElementById('apiKey').value;
   
   if (!url) {
-    showNotification('Please enter a gateway URL', 'error');
+    showToast('Please enter a gateway URL', 'error');
     return;
   }
   
@@ -131,16 +204,24 @@ async function connectToGateway() {
   const status = await apiCall('/status');
   if (status) {
     updateConnectionStatus(true);
-    showNotification('Connected to gateway', 'success');
+    showToast('Connected to gateway', 'success');
     loadChannels();
   }
 }
 
-// Notifications
-function showNotification(message, type = 'info') {
-  // Simple notification - could be enhanced
-  console.log(`[${type}] ${message}`);
-  // TODO: Add toast notification UI
+// Loading state helper
+function setLoading(elementId, loading) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  
+  if (loading) {
+    el.dataset.originalContent = el.innerHTML;
+    el.innerHTML = '<span class="loading">Loading...</span>';
+    el.style.opacity = '0.7';
+  } else {
+    el.innerHTML = el.dataset.originalContent || '';
+    el.style.opacity = '1';
+  }
 }
 
 // ============ CHAT ============
@@ -158,7 +239,10 @@ function initChat() {
 }
 
 async function loadChannels() {
+  setLoading('channels', true);
   const channels = await apiCall('/api/channels');
+  setLoading('channels', false);
+  
   if (channels) {
     const container = document.getElementById('channels');
     container.innerHTML = channels.map(ch => `
@@ -190,7 +274,10 @@ async function selectChannel(channelId) {
 }
 
 async function loadMessages(channelId) {
+  setLoading('chatMessages', true);
   const messages = await apiCall(`/api/channels/${channelId}/messages?limit=50`);
+  setLoading('chatMessages', false);
+  
   const container = document.getElementById('chatMessages');
   
   if (!messages || messages.length === 0) {
@@ -209,11 +296,17 @@ async function loadMessages(channelId) {
         <span class="message-author">${msg.author || 'User'}</span>
         <span class="message-time">${new Date(msg.timestamp).toLocaleString()}</span>
       </div>
-      <div class="message-content">${msg.content}</div>
+      <div class="message-content">${escapeHtml(msg.content)}</div>
     </div>
   `).join('');
   
   container.scrollTop = container.scrollHeight;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 async function sendMessage() {
@@ -236,18 +329,17 @@ async function sendMessage() {
 
 // ============ TERMINAL ============
 function initTerminal() {
-  // Terminal will be initialized when tab is opened
   document.querySelector('[data-tab="terminal"]').addEventListener('click', async () => {
     if (!terminal) {
       await initXterm();
     }
   });
   
-  document.getElementById('terminalClear').addEventListener('click', () => {
+  document.getElementById('terminalClear')?.addEventListener('click', () => {
     if (terminal) terminal.clear();
   });
   
-  document.getElementById('terminalKill').addEventListener('click', () => {
+  document.getElementById('terminalKill')?.addEventListener('click', () => {
     if (terminalSocket) {
       terminalSocket.close();
       terminalSocket = null;
@@ -257,6 +349,7 @@ function initTerminal() {
 
 async function initXterm() {
   const terminalContainer = document.getElementById('terminal');
+  if (!terminalContainer) return;
   
   terminal = new Terminal({
     cursorBlink: true,
@@ -285,34 +378,44 @@ async function initXterm() {
 }
 
 function connectTerminalWebSocket() {
+  if (!gatewayUrl || !terminal) return;
+  
   const wsUrl = gatewayUrl.replace('http', 'ws') + '/terminal';
   
-  terminalSocket = new WebSocket(wsUrl);
-  
-  terminalSocket.onopen = () => {
-    terminal.writeln('\x1b[32mConnected to OpenClaw Terminal\x1b[0m');
-  };
-  
-  terminalSocket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'output') {
-      terminal.write(data.data);
-    }
-  };
-  
-  terminalSocket.onclose = () => {
-    terminal.writeln('\x1b[31mDisconnected\x1b[0m');
-  };
-  
-  terminalSocket.onerror = (error) => {
-    terminal.writeln('\x1b[31mConnection error\x1b[0m');
-  };
+  try {
+    terminalSocket = new WebSocket(wsUrl);
+    
+    terminalSocket.onopen = () => {
+      terminal?.writeln('\x1b[32mConnected to OpenClaw Terminal\x1b[0m');
+    };
+    
+    terminalSocket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'output') {
+        terminal?.write(data.data);
+      }
+    };
+    
+    terminalSocket.onclose = () => {
+      terminal?.writeln('\x1b[31mDisconnected\x1b[0m');
+    };
+    
+    terminalSocket.onerror = (error) => {
+      terminal?.writeln('\x1b[31mConnection error\x1b[0m');
+    };
+  } catch (e) {
+    terminal?.writeln('\x1b[31mFailed to connect\x1b[0m');
+  }
 }
 
 // ============ SESSIONS ============
 async function loadSessions() {
+  setLoading('sessionsList', true);
   const sessions = await apiCall('/api/sessions');
+  setLoading('sessionsList', false);
+  
   const container = document.getElementById('sessionsList');
+  if (!container) return;
   
   if (!sessions || sessions.length === 0) {
     container.innerHTML = '<p style="color: var(--text-muted)">No active sessions</p>';
@@ -322,7 +425,7 @@ async function loadSessions() {
   container.innerHTML = sessions.map(session => `
     <div class="session-item">
       <div class="session-info">
-        <h4>${session.label || session.sessionKey}</h4>
+        <h4>${escapeHtml(session.label || session.sessionKey)}</h4>
         <p>${session.runtime} • ${session.status || 'active'}</p>
       </div>
       <div class="session-actions">
@@ -337,6 +440,7 @@ async function killSession(sessionKey) {
   if (confirm('Kill this session?')) {
     await apiCall(`/api/sessions/${sessionKey}`, { method: 'DELETE' });
     loadSessions();
+    showToast('Session killed', 'success');
   }
 }
 
@@ -347,10 +451,11 @@ function sendToSession(sessionKey) {
       method: 'POST',
       body: JSON.stringify({ sessionKey, message })
     });
+    showToast('Message sent', 'success');
   }
 }
 
-document.getElementById('spawnSessionBtn').addEventListener('click', async () => {
+document.getElementById('spawnSessionBtn')?.addEventListener('click', async () => {
   const label = prompt('Session label:');
   const runtime = prompt('Runtime (subagent/acp):', 'subagent');
   const task = prompt('Initial task (optional):');
@@ -361,13 +466,18 @@ document.getElementById('spawnSessionBtn').addEventListener('click', async () =>
       body: JSON.stringify({ label, runtime, task })
     });
     loadSessions();
+    showToast('Session spawned', 'success');
   }
 });
 
 // ============ NODES ============
 async function loadNodes() {
+  setLoading('nodesGrid', true);
   const nodes = await apiCall('/api/nodes');
+  setLoading('nodesGrid', false);
+  
   const container = document.getElementById('nodesGrid');
+  if (!container) return;
   
   if (!nodes || nodes.length === 0) {
     container.innerHTML = '<p style="color: var(--text-muted)">No nodes connected</p>';
@@ -377,7 +487,7 @@ async function loadNodes() {
   container.innerHTML = nodes.map(node => `
     <div class="node-card">
       <div class="node-header">
-        <span class="node-name">${node.name || node.id}</span>
+        <span class="node-name">${escapeHtml(node.name || node.id)}</span>
         <span class="node-status">
           <span class="dot ${node.online ? '' : 'offline'}"></span>
           ${node.online ? 'Online' : 'Offline'}
@@ -396,52 +506,62 @@ async function loadNodes() {
 
 async function nodeCameraSnap(nodeId) {
   const preview = document.getElementById(`preview-${nodeId}`);
-  preview.innerHTML = '<span>Loading...</span>';
+  if (preview) {
+    preview.innerHTML = '<span>Loading...</span>';
+  }
   
   const result = await apiCall(`/api/nodes/${nodeId}/camera?snap=true`);
-  if (result && result.image) {
+  if (result && result.image && preview) {
     preview.innerHTML = `<img src="data:image/jpeg;base64,${result.image}" />`;
-  } else {
+  } else if (preview) {
     preview.innerHTML = '<span>No camera</span>';
   }
 }
 
 async function nodeScreen(nodeId) {
   const preview = document.getElementById(`preview-${nodeId}`);
-  preview.innerHTML = '<span>Loading...</span>';
+  if (preview) {
+    preview.innerHTML = '<span>Loading...</span>';
+  }
   
   const result = await apiCall(`/api/nodes/${nodeId}/screen`);
-  if (result && result.image) {
+  if (result && result.image && preview) {
     preview.innerHTML = `<img src="data:image/jpeg;base64,${result.image}" />`;
-  } else {
+  } else if (preview) {
     preview.innerHTML = '<span>No screen</span>';
   }
 }
 
-document.getElementById('refreshNodesBtn').addEventListener('click', loadNodes);
+document.getElementById('refreshNodesBtn')?.addEventListener('click', loadNodes);
 
 // ============ OLLAMA ============
 async function loadOllama() {
   // Load current model
   const status = await apiCall('/status');
   if (status?.model) {
-    document.getElementById('modelSelect').value = status.model;
+    const select = document.getElementById('modelSelect');
+    if (select) select.value = status.model;
   }
   
   // Load available models
+  setLoading('modelsList', true);
   const models = await apiCall('/api/ollama/models');
+  setLoading('modelsList', false);
+  
   const select = document.getElementById('modelSelect');
   const list = document.getElementById('modelsList');
   
-  if (models) {
+  if (models && select) {
     select.innerHTML = models.map(m => 
-      `<option value="${m.name}" ${m.name === status?.model ? 'selected' : ''}>${m.name}</option>`
+      `<option value="${escapeHtml(m.name)}" ${m.name === status?.model ? 'selected' : ''}>${escapeHtml(m.name)}</option>`
     ).join('');
-    
+  }
+  
+  if (models && list) {
     list.innerHTML = models.map(m => `
       <div class="model-item">
         <div class="model-info">
-          <strong>${m.name}</strong>
+          <strong>${escapeHtml(m.name)}</strong>
           <span class="model-size">${formatSize(m.size)}</span>
         </div>
         ${m.name === status?.model ? '<span class="badge">Active</span>' : ''}
@@ -460,24 +580,31 @@ function formatSize(bytes) {
   return `${bytes.toFixed(1)} ${units[i]}`;
 }
 
-document.getElementById('setModelBtn').addEventListener('click', async () => {
-  const model = document.getElementById('modelSelect').value;
+document.getElementById('setModelBtn')?.addEventListener('click', async () => {
+  const model = document.getElementById('modelSelect')?.value;
+  if (!model) return;
+  
   const result = await apiCall('/api/ollama/model', {
     method: 'POST',
     body: JSON.stringify({ model })
   });
   
   if (result) {
-    showNotification(`Model changed to ${model}`, 'success');
+    showToast(`Model changed to ${model}`, 'success');
+    loadOllama(); // Refresh to show active badge
   }
 });
 
-document.getElementById('refreshModelsBtn').addEventListener('click', loadOllama);
+document.getElementById('refreshModelsBtn')?.addEventListener('click', loadOllama);
 
 // ============ CRON ============
 async function loadCron() {
+  setLoading('cronList', true);
   const jobs = await apiCall('/api/cron');
+  setLoading('cronList', false);
+  
   const container = document.getElementById('cronList');
+  if (!container) return;
   
   if (!jobs || jobs.length === 0) {
     container.innerHTML = '<p style="color: var(--text-muted)">No scheduled jobs</p>';
@@ -487,8 +614,8 @@ async function loadCron() {
   container.innerHTML = jobs.map(job => `
     <div class="cron-item">
       <div class="cron-info">
-        <h4>${job.label || job.id}</h4>
-        <p>${job.schedule} → ${job.command}</p>
+        <h4>${escapeHtml(job.label || job.id)}</h4>
+        <p>${escapeHtml(job.schedule)} → ${escapeHtml(job.command)}</p>
       </div>
       <div class="cron-actions">
         <button class="btn btn-danger" onclick="removeCron('${job.id}')">Remove</button>
@@ -497,7 +624,7 @@ async function loadCron() {
   `).join('');
 }
 
-document.getElementById('addCronBtn').addEventListener('click', async () => {
+document.getElementById('addCronBtn')?.addEventListener('click', async () => {
   const schedule = prompt('Schedule (cron format, e.g., */5 * * * *):');
   const command = prompt('Command:');
   const label = prompt('Label (optional):');
@@ -508,6 +635,7 @@ document.getElementById('addCronBtn').addEventListener('click', async () => {
       body: JSON.stringify({ schedule, command, label })
     });
     loadCron();
+    showToast('Cron job added', 'success');
   }
 });
 
@@ -515,44 +643,48 @@ async function removeCron(id) {
   if (confirm('Remove this cron job?')) {
     await apiCall(`/api/cron/${id}`, { method: 'DELETE' });
     loadCron();
+    showToast('Cron job removed', 'success');
   }
 }
 
 // ============ SETTINGS ============
 function initSettings() {
-  document.getElementById('connectBtn').addEventListener('click', connectToGateway);
+  document.getElementById('connectBtn')?.addEventListener('click', connectToGateway);
   
-  document.getElementById('reloadConfigBtn').addEventListener('click', async () => {
+  document.getElementById('reloadConfigBtn')?.addEventListener('click', async () => {
+    setLoading('configEditor', true);
     const config = await apiCall('/api/config');
+    setLoading('configEditor', false);
     if (config) {
-      document.getElementById('configEditor').value = JSON.stringify(config, null, 2);
+      const editor = document.getElementById('configEditor');
+      if (editor) editor.value = JSON.stringify(config, null, 2);
     }
   });
   
-  document.getElementById('saveConfigBtn').addEventListener('click', async () => {
+  document.getElementById('saveConfigBtn')?.addEventListener('click', async () => {
     try {
-      const config = JSON.parse(document.getElementById('configEditor').value);
+      const config = JSON.parse(document.getElementById('configEditor')?.value || '{}');
       const result = await apiCall('/api/config', {
         method: 'POST',
         body: JSON.stringify(config)
       });
       
       if (result) {
-        showNotification('Config saved', 'success');
+        showToast('Config saved', 'success');
       }
     } catch (e) {
-      showNotification('Invalid JSON: ' + e.message, 'error');
+      showToast('Invalid JSON: ' + e.message, 'error');
     }
   });
   
   // Load initial config
-  document.getElementById('reloadConfigBtn').click();
+  document.getElementById('reloadConfigBtn')?.click();
 }
 
 // Window controls
-document.getElementById('gatewayStatus').addEventListener('click', async () => {
+document.getElementById('gatewayStatus')?.addEventListener('click', async () => {
   const status = await apiCall('/status');
   if (status) {
-    alert(JSON.stringify(status, null, 2));
+    showToast('Gateway is running', 'success');
   }
 });
