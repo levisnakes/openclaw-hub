@@ -3,10 +3,285 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https:; connect-src 'self' ws: wss: http: https:;">
   <title>OpenClaw Hub</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
-  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Critical CSS - inlined to avoid CSP issues */
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --bg-hover: #30363d;
+      --border-color: #30363d;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      --text-muted: #6e7681;
+      --accent-primary: #58a6ff;
+      --accent-success: #3fb950;
+      --accent-warning: #d29922;
+      --accent-danger: #f85149;
+      --accent-purple: #a371f7;
+      --radius: 8px;
+      --radius-sm: 6px;
+    }
+    
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    #app { display: flex; height: 100vh; }
+    
+    .sidebar {
+      width: 220px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 0;
+    }
+    
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px 24px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 16px;
+    }
+    
+    .logo-icon { font-size: 28px; }
+    .logo-text {
+      font-size: 18px;
+      font-weight: 600;
+      background: linear-gradient(135deg, #58a6ff, #a371f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    .nav-tabs { flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 0 12px; }
+    
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 14px;
+      text-align: left;
+      transition: 0.2s;
+      width: 100%;
+    }
+    
+    .nav-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .nav-btn.active { background: var(--bg-tertiary); color: var(--text-primary); }
+    .nav-icon { font-size: 18px; width: 24px; text-align: center; }
+    
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border-top: 1px solid var(--border-color);
+      font-size: 13px;
+    }
+    
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-danger); }
+    .status-dot.online { background: var(--accent-success); box-shadow: 0 0 8px var(--accent-success); }
+    
+    .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .tab-title { font-size: 20px; font-weight: 600; }
+    
+    .header-btn {
+      width: 36px;
+      height: 36px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .status-indicator { width: 10px; height: 10px; border-radius: 50%; background: var(--accent-danger); }
+    .status-indicator.online { background: var(--accent-success); box-shadow: 0 0 8px var(--accent-success); }
+    
+    .tab-content { display: none; flex: 1; overflow: auto; padding: 24px; }
+    .tab-content.active { display: block; }
+    
+    .panel {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    
+    .panel-header h3 { font-size: 16px; font-weight: 600; }
+    
+    .btn {
+      padding: 10px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+    }
+    
+    .btn-primary { background: var(--accent-primary); color: #fff; }
+    .btn-primary:hover { background: #4393e6; }
+    .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); }
+    .btn-secondary:hover { background: var(--bg-hover); }
+    .btn-danger { background: var(--accent-danger); color: #fff; }
+    .btn-danger:hover { background: #da3b40; }
+    
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+    
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      outline: none;
+      border-color: var(--accent-primary);
+    }
+    
+    .chat-container {
+      display: flex;
+      height: calc(100vh - 140px);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    
+    .channel-list { width: 240px; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; }
+    .channel-header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 14px; }
+    .channels { flex: 1; overflow-y: auto; padding: 8px; }
+    .channel-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--radius-sm); cursor: pointer; color: var(--text-secondary); }
+    .channel-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .channel-item.active { background: var(--bg-tertiary); color: var(--text-primary); }
+    
+    .chat-view { flex: 1; display: flex; flex-direction: column; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 20px; }
+    .welcome-message { text-align: center; padding: 60px 20px; color: var(--text-secondary); }
+    .welcome-message h2 { margin-bottom: 8px; color: var(--text-primary); }
+    
+    .message { margin-bottom: 16px; }
+    .message-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .message-author { font-weight: 600; color: var(--accent-primary); }
+    .message-time { font-size: 12px; color: var(--text-muted); }
+    .message-content { color: var(--text-secondary); line-height: 1.5; }
+    
+    .chat-input-container { display: flex; gap: 12px; padding: 16px; border-top: 1px solid var(--border-color); }
+    .chat-input { flex: 1; padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius); color: var(--text-primary); font-size: 14px; resize: none; }
+    .chat-input:focus { outline: none; border-color: var(--accent-primary); }
+    .send-btn { padding: 12px 24px; }
+    
+    .terminal-container { height: calc(100vh - 140px); display: flex; flex-direction: column; }
+    .terminal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .terminal-header select { padding: 8px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-primary); }
+    .terminal-actions { display: flex; gap: 8px; }
+    .terminal-wrapper { flex: 1; background: #0d1117; border: 1px solid var(--border-color); border-radius: var(--radius); padding: 12px; overflow: hidden; }
+    
+    .sessions-list { display: flex; flex-direction: column; gap: 8px; }
+    .session-item { display: flex; align-items: center; justify-content: space-between; padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm); }
+    .session-info h4 { font-size: 14px; margin-bottom: 4px; }
+    .session-info p { font-size: 12px; color: var(--text-secondary); }
+    .session-actions { display: flex; gap: 8px; }
+    
+    .nodes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+    .node-card { background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius); overflow: hidden; }
+    .node-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-color); }
+    .node-name { font-weight: 600; font-size: 14px; }
+    .node-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+    .node-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-success); }
+    .node-status .dot.offline { background: var(--accent-danger); }
+    .node-preview { height: 160px; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+    .node-preview img { width: 100%; height: 100%; object-fit: cover; }
+    .node-actions { display: flex; gap: 8px; padding: 12px 16px; }
+    .node-actions .btn { flex: 1; text-align: center; font-size: 12px; padding: 8px; }
+    
+    .model-selector { display: flex; align-items: center; gap: 12px; }
+    .model-selector label { font-size: 14px; color: var(--text-secondary); }
+    .model-dropdown { flex: 1; padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-primary); }
+    .models-list { display: flex; flex-direction: column; gap: 8px; }
+    .model-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm); }
+    .model-info { font-size: 14px; }
+    .model-size { font-size: 12px; color: var(--text-secondary); }
+    .badge { background: var(--accent-success); color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+    
+    .cron-list { display: flex; flex-direction: column; gap: 8px; }
+    .cron-item { display: flex; align-items: center; justify-content: space-between; padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm); }
+    .cron-info h4 { font-size: 14px; margin-bottom: 4px; }
+    .cron-info p { font-size: 12px; color: var(--text-secondary); font-family: monospace; }
+    .cron-actions { display: flex; gap: 8px; }
+    
+    .settings-container { max-width: 800px; }
+    .config-editor textarea { width: 100%; font-family: monospace; font-size: 13px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 12px; resize: vertical; }
+    .form-actions { display: flex; gap: 12px; margin-top: 16px; }
+    
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 20px; border-radius: 8px; font-size: 14px; display: flex; align-items: center; gap: 10px; z-index: 9999; animation: slideIn 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .toast-info { background: var(--accent-primary); color: #fff; }
+    .toast-success { background: var(--accent-success); color: #fff; }
+    .toast-error { background: var(--accent-danger); color: #fff; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    
+    .dashboard-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+    .stat-card { background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 20px; text-align: center; }
+    .stat-value { font-size: 32px; font-weight: 700; color: var(--accent-primary); }
+    .stat-label { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
+    
+    .heartbeat-panel { background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary)); border: 1px solid var(--accent-purple); }
+    .heartbeat-status { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+    .heartbeat-pulse { width: 12px; height: 12px; border-radius: 50%; background: var(--accent-purple); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.2); } }
+    
+    .logs-container { max-height: 400px; overflow-y: auto; }
+    .log-entry { padding: 8px 12px; border-bottom: 1px solid var(--border-color); font-family: monospace; font-size: 12px; }
+    .log-entry.error { color: var(--accent-danger); }
+    .log-entry.warn { color: var(--accent-warning); }
+    .log-time { color: var(--text-muted); margin-right: 8px; }
+    
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 4px; }
+    
+    .loading { color: var(--text-muted); font-style: italic; }
+  </style>
 </head>
 <body>
   <div id="app">
@@ -17,8 +292,12 @@
         <span class="logo-text">OpenClaw</span>
       </div>
       
-      <nav class="nav-tabs">
-        <button class="nav-btn active" data-tab="chat">
+      <nav class="nav-tabs" id="navTabs">
+        <button class="nav-btn active" data-tab="dashboard">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">Dashboard</span>
+        </button>
+        <button class="nav-btn" data-tab="chat">
           <span class="nav-icon">💬</span>
           <span class="nav-label">Chat</span>
         </button>
@@ -42,6 +321,10 @@
           <span class="nav-icon">⏰</span>
           <span class="nav-label">Cron</span>
         </button>
+        <button class="nav-btn" data-tab="logs">
+          <span class="nav-icon">📜</span>
+          <span class="nav-label">Logs</span>
+        </button>
         <button class="nav-btn" data-tab="settings">
           <span class="nav-icon">⚙️</span>
           <span class="nav-label">Settings</span>
@@ -49,38 +332,67 @@
       </nav>
       
       <div class="connection-status" id="connectionStatus">
-        <span class="status-dot offline"></span>
-        <span class="status-text">Disconnected</span>
+        <span class="status-dot offline" id="statusDot"></span>
+        <span class="status-text" id="statusText">Disconnected</span>
       </div>
     </aside>
 
     <!-- Main Content -->
     <main class="main-content">
-      <!-- Header -->
       <header class="header">
-        <h1 class="tab-title" id="tabTitle">Chat</h1>
+        <h1 class="tab-title" id="tabTitle">Dashboard</h1>
         <div class="header-actions">
-          <button class="header-btn" id="gatewayStatus" title="Gateway Status">
-            <span class="status-indicator"></span>
-          </button>
+          <button class="header-btn" id="gatewayStatusBtn" title="Gateway Status">⚡</button>
         </div>
       </header>
 
+      <!-- Dashboard Tab -->
+      <section class="tab-content active" id="tab-dashboard">
+        <div class="dashboard-stats" id="dashboardStats">
+          <div class="stat-card">
+            <div class="stat-value" id="statSessions">-</div>
+            <div class="stat-label">Active Sessions</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statNodes">-</div>
+            <div class="stat-label">Nodes Online</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statCron">-</div>
+            <div class="stat-label">Cron Jobs</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statUptime">-</div>
+            <div class="stat-label">Uptime</div>
+          </div>
+        </div>
+        
+        <div class="panel heartbeat-panel">
+          <div class="panel-header">
+            <h3>❤️ Heartbeat</h3>
+            <button class="btn btn-secondary" id="toggleHeartbeat">Pause</button>
+          </div>
+          <p style="color: var(--text-secondary); margin-bottom: 12px;">
+            Heartbeat monitors your gateway and alerts you if it goes offline.
+          </p>
+          <div class="heartbeat-status">
+            <div class="heartbeat-pulse" id="heartbeatPulse"></div>
+            <span id="heartbeatStatus">Heartbeat active - checking every 30s</span>
+          </div>
+        </div>
+      </section>
+
       <!-- Chat Tab -->
-      <section class="tab-content active" id="tab-chat">
+      <section class="tab-content" id="tab-chat">
         <div class="chat-container">
-          <div class="channel-list" id="channelList">
+          <div class="channel-list">
             <div class="channel-header">
               <span>Channels</span>
-              <button class="icon-btn">+</button>
             </div>
-            <div class="channels" id="channels">
-              <!-- Populated dynamically -->
-            </div>
+            <div class="channels" id="channels"></div>
           </div>
           <div class="chat-view">
             <div class="chat-messages" id="chatMessages">
-              <!-- Messages go here -->
               <div class="welcome-message">
                 <h2>Welcome to OpenClaw Hub</h2>
                 <p>Select a channel to start chatting</p>
@@ -88,7 +400,7 @@
             </div>
             <div class="chat-input-container">
               <textarea class="chat-input" id="chatInput" placeholder="Type a message..." rows="1"></textarea>
-              <button class="send-btn" id="sendBtn">Send</button>
+              <button class="send-btn btn btn-primary" id="sendBtn">Send</button>
             </div>
           </div>
         </div>
@@ -101,11 +413,10 @@
             <select id="terminalType">
               <option value="gateway">OpenClaw Gateway</option>
               <option value="ssh">SSH to Pi</option>
-              <option value="local">Local Shell</option>
             </select>
             <div class="terminal-actions">
-              <button class="icon-btn" id="terminalClear" title="Clear">🗑️</button>
-              <button class="icon-btn" id="terminalKill" title="Kill Session">⏹️</button>
+              <button class="btn btn-secondary" id="terminalClear">🗑️ Clear</button>
+              <button class="btn btn-danger" id="terminalKill">⏹️ Disconnect</button>
             </div>
           </div>
           <div class="terminal-wrapper" id="terminal"></div>
@@ -114,72 +425,67 @@
 
       <!-- Sessions Tab -->
       <section class="tab-content" id="tab-sessions">
-        <div class="sessions-container">
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Active Sessions</h3>
-              <button class="btn btn-primary" id="spawnSessionBtn">+ New Session</button>
-            </div>
-            <div class="sessions-list" id="sessionsList">
-              <!-- Populated dynamically -->
-            </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Active Sessions</h3>
+            <button class="btn btn-primary" id="spawnSessionBtn">+ New Session</button>
           </div>
+          <div class="sessions-list" id="sessionsList"></div>
         </div>
       </section>
 
       <!-- Nodes Tab -->
       <section class="tab-content" id="tab-nodes">
-        <div class="nodes-container">
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Connected Nodes</h3>
-              <button class="btn btn-secondary" id="refreshNodesBtn">🔄 Refresh</button>
-            </div>
-            <div class="nodes-grid" id="nodesGrid">
-              <!-- Populated dynamically -->
-            </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Connected Nodes</h3>
+            <button class="btn btn-secondary" id="refreshNodesBtn">🔄 Refresh</button>
           </div>
+          <div class="nodes-grid" id="nodesGrid"></div>
         </div>
       </section>
 
       <!-- Ollama Tab -->
       <section class="tab-content" id="tab-ollama">
-        <div class="ollama-container">
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Model Selection</h3>
-            </div>
-            <div class="model-selector">
-              <label>Current Model:</label>
-              <select id="modelSelect" class="model-dropdown">
-                <!-- Populated dynamically -->
-              </select>
-              <button class="btn btn-primary" id="setModelBtn">Set Model</button>
-            </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Model Selection</h3>
           </div>
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Available Models</h3>
-              <button class="btn btn-secondary" id="refreshModelsBtn">🔄 Refresh</button>
-            </div>
-            <div class="models-list" id="modelsList">
-              <!-- Populated dynamically -->
-            </div>
+          <div class="model-selector">
+            <label>Current Model:</label>
+            <select id="modelSelect" class="model-dropdown"></select>
+            <button class="btn btn-primary" id="setModelBtn">Set Model</button>
           </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Available Models</h3>
+            <button class="btn btn-secondary" id="refreshModelsBtn">🔄 Refresh</button>
+          </div>
+          <div class="models-list" id="modelsList"></div>
         </div>
       </section>
 
       <!-- Cron Tab -->
       <section class="tab-content" id="tab-cron">
-        <div class="cron-container">
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Scheduled Jobs</h3>
-              <button class="btn btn-primary" id="addCronBtn">+ Add Job</button>
-            </div>
-            <div class="cron-list" id="cronList">
-              <!-- Populated dynamically -->
-            </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Scheduled Jobs</h3>
+            <button class="btn btn-primary" id="addCronBtn">+ Add Job</button>
+          </div>
+          <div class="cron-list" id="cronList"></div>
+        </div>
+      </section>
+
+      <!-- Logs Tab -->
+      <section class="tab-content" id="tab-logs">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Activity Logs</h3>
+            <button class="btn btn-secondary" id="clearLogsBtn">Clear</button>
+          </div>
+          <div class="logs-container" id="logsContainer">
+            <div class="log-entry"><span class="log-time">--:--:--</span>OpenClaw Hub started</div>
           </div>
         </div>
       </section>
@@ -204,16 +510,13 @@
           
           <div class="panel">
             <div class="panel-header">
-              <h3>Appearance</h3>
+              <h3>Heartbeat Settings</h3>
             </div>
             <div class="form-group">
-              <label>Theme:</label>
-              <select id="themeSelect">
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-                <option value="system">System</option>
-              </select>
+              <label>Check Interval (seconds):</label>
+              <input type="number" id="heartbeatInterval" value="30" min="10" max="300">
             </div>
+            <button class="btn btn-primary" id="saveHeartbeatSettings">Save</button>
           </div>
           
           <div class="panel">
@@ -233,8 +536,9 @@
     </main>
   </div>
 
+  <!-- xterm.js from CDN -->
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-  <script src="renderer.js"></script>
+  <script src="src/renderer.js"></script>
 </body>
 </html>
